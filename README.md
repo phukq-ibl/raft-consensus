@@ -1,5 +1,5 @@
 # raft-consensus
-Simple implementation of [raft consensus]("https://raft.github.io/")
+Simple implementation of [raft consensus](https://raft.github.io/)
 ### Build
 ```
 make raft

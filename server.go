@@ -65,13 +65,13 @@ func (s Server) AddNode(ip string) error {
 	return nil
 }
 
-func (s Server) Start() error {
+func (s *Server) Start() error {
 	go s.handleConnection()
 	go s.run()
 	return nil
 }
 
-func (s Server) run() {
+func (s *Server) run() {
 	log.Info("Server run")
 	timer := time.NewTimer(types.ElectionTimeout)
 
@@ -79,20 +79,21 @@ func (s Server) run() {
 		select {
 		case <-timer.C:
 			// log.Debug("Heartbeat timeout")
+			s.mutex.Lock()
 			if s.Type == types.Follower {
 				go s.startNewElection()
 			} else if s.Type == types.Leader {
 				go s.broadcastHeartBeatMsg()
-				timer.Stop()
 				timer.Reset(types.HeartbeatTimeout)
 			}
-		case <-s.chCampaignTimeout:
+			s.mutex.Unlock()
+		case r := <-s.chCampaignTimeout:
+			log.Debug("Campaign timout because of ", r)
 			s.mutex.Lock()
 			s.Type = types.Follower
 			s.VotedFor = ""
 			s.totalVote = 0
 			s.mutex.Unlock()
-			timer.Stop()
 			timer.Reset(types.ElectionTimeout)
 		case <-s.chNewElection:
 			s.mutex.Lock()
@@ -102,6 +103,7 @@ func (s Server) run() {
 			s.mutex.Unlock()
 			// Send request voted to other peer
 			s.broadcastRequestVote()
+
 			// Start waiting for voting
 			go s.campaignWait()
 			//TODO: should we stop electiontimeout?
@@ -115,12 +117,10 @@ func (s Server) run() {
 			s.mutex.Unlock()
 			log.Info("Become leader, start send heartbeat msg")
 			go s.broadcastHeartBeatMsg()
-			timer.Stop()
 			timer.Reset(types.HeartbeatTimeout)
 
-		case <-s.chHeartbeatMsg:
-			log.Debug("Heartbeat msg ")
-			timer.Stop()
+		case msg := <-s.chHeartbeatMsg:
+			log.Debug("Heartbeat msg from ", msg.FromId)
 			timer.Reset(types.ElectionTimeout)
 
 			s.mutex.Lock()
@@ -134,7 +134,7 @@ func (s Server) run() {
 	}
 }
 
-func (s Server) handleConnection() {
+func (s *Server) handleConnection() {
 	err := s.setupListen()
 
 	if err != nil {
@@ -205,15 +205,15 @@ func (s *Server) doHandShake(p *Peer) error {
 			if err != nil || msg.Type != types.Handshake {
 				return errors.New("Receive msg before handshake")
 			}
-			ae, err := types.AppendEntriesFromJSONString(msg.Data)
+			// ae, err := types.AppendEntriesFromJSONString(msg.Data)
 
-			if err != nil {
-				return errors.New("Handshake msg is wrong format: " + sMsg)
-			}
-			if ae.LeaderId == s.Id {
+			// if err != nil {
+			// 	return errors.New("Handshake msg is wrong format: " + sMsg)
+			// }
+			if msg.FromId == s.Id {
 				return errors.New("Peer id must be diffirent with : " + s.Id)
 			}
-			p.Id = ae.LeaderId
+			p.Id = msg.FromId
 			s.chNewPeer <- p
 			return nil
 		}
@@ -226,6 +226,7 @@ func (s *Server) startNewElection() {
 	timeout := rand.Intn(150) + 150
 	timer := time.NewTimer(time.Millisecond * time.Duration(timeout))
 	log.Error("Start new election campaign after ", timeout, "mil")
+L:
 	for {
 		select {
 		case <-timer.C:
@@ -233,9 +234,9 @@ func (s *Server) startNewElection() {
 			s.chNewElection <- 1
 		case <-s.chVoteRequest:
 			// Cancel new election campaign if we receipt a request vote
-			if !timer.Stop() {
-				<-timer.C
-			}
+			timer.Stop()
+			s.chCampaignTimeout <- 2
+			break L
 		}
 	}
 }
@@ -253,7 +254,7 @@ func (s *Server) addPeer(p *Peer) {
 	s.mutex.Unlock()
 }
 
-func (s Server) AddPeer(ip string) error {
+func (s *Server) AddPeer(ip string) error {
 	conn, err := net.Dial("tcp", ip)
 	if err != nil {
 		return err
@@ -278,7 +279,7 @@ func (s *Server) Handle(p *Peer) error {
 			return err
 		}
 
-		log.Debug("Receive msg: ", msgRaw)
+		// log.Debug("Receive msg: ", msgRaw)
 		// if msgRaw != "" {
 		// }
 
@@ -300,7 +301,7 @@ func (s *Server) Handle(p *Peer) error {
 }
 
 func (s *Server) handleRequestVoteMsg(p *Peer, msg types.Msg) {
-	log.Debug("Handle request vote msg ")
+	log.Debug("Handle requestvote msg ")
 
 	ae, _ := types.AppendEntriesFromJSONString(msg.Data)
 
@@ -316,14 +317,16 @@ func (s *Server) handleRequestVoteMsg(p *Peer, msg types.Msg) {
 
 	s.chVoteRequest <- 1
 	s.VotedFor = ae.LeaderId
+
 	voteMsg := types.NewVoteForMsg(ae.LeaderId)
+	voteMsg.FromId = s.Id
 	log.Debug("Send vote for ", ae.LeaderId)
 	p.SendMsg(voteMsg.ToString())
 }
 
 func (s Server) handleVoteMsg(p *Peer, msg types.Msg) {
-	log.Debug("Handle vote msg ", msg.ToString())
 	ae, _ := types.AppendEntriesFromJSONString(msg.Data)
+	log.Debug("Handle VoteMsg from:", msg.FromId, ",for:", ae.LeaderId)
 	if ae.LeaderId == s.Id {
 		s.chVote <- ae
 	}
@@ -341,12 +344,13 @@ func (s Server) broadcast(msg string) {
 	}
 }
 
-func (s Server) campaignWait() {
+func (s *Server) campaignWait() {
 	timer := time.NewTimer(types.CampaignTimeout)
-
+L:
 	for {
 		select {
 		case <-timer.C:
+
 			log.Debug("Campaign timeout, total vote is: ", s.totalVote)
 			if s.totalVote < types.MinVote {
 				log.Debug("total vote does not exceed min vote number ", types.MinVote)
@@ -356,16 +360,17 @@ func (s Server) campaignWait() {
 				s.chBecomeLeader <- 1
 			}
 		case <-s.chVote:
-			log.Debug("Receive vote msg")
+			// log.Debug("Receive vote msg")
 			s.mutex.Lock()
 			s.totalVote++
-			if s.totalVote >= types.MinVote {
-				if !timer.Stop() {
-					// <-timer.C
-				}
-				s.chBecomeLeader <- 1
-			}
 			s.mutex.Unlock()
+			log.Debug("Receive vote, total is ", s.totalVote)
+
+			if s.totalVote >= types.MinVote {
+				timer.Stop()
+				s.chBecomeLeader <- 1
+				break L
+			}
 		}
 
 	}

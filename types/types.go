@@ -4,9 +4,9 @@ import "time"
 import "encoding/json"
 
 const (
-	ElectionTimeout  time.Duration = 5 * time.Second
+	ElectionTimeout  time.Duration = 8 * time.Second
 	HandshakeTimeout time.Duration = 15 * time.Second
-	CampaignTimeout  time.Duration = 8 * time.Second
+	CampaignTimeout  time.Duration = 5 * time.Second
 	HeartbeatTimeout time.Duration = 3 * time.Second
 )
 
@@ -56,22 +56,25 @@ func AppendEntriesFromJSONString(strMsg string) (AppendEntries, error) {
 }
 
 type Msg struct {
-	Type MsgType
-	Data string
+	Type   MsgType
+	Data   string
+	FromId string
 }
 
-func NewHandshakeMsg(leaderId string) Msg {
+func NewHandshakeMsg(id string) Msg {
 	msg := Msg{}
 	msg.Type = Handshake
-	ae := AppendEntries{}
-	ae.LeaderId = leaderId
-	msg.Data = ae.ToString()
+	msg.FromId = id
+	// ae := AppendEntries{}
+	// ae.LeaderId = leaderId
+	// msg.Data = ae.ToString()
 	return msg
 }
 
 func NewRequestVoteMsg(leaderId string) Msg {
 	msg := Msg{}
 	msg.Type = RequestVote
+	msg.FromId = leaderId
 	ae := AppendEntries{}
 	ae.LeaderId = leaderId
 	msg.Data = ae.ToString()
@@ -89,9 +92,10 @@ func NewVoteForMsg(leaderId string) Msg {
 func NewHeartBeatMsg(leaderId string) Msg {
 	msg := Msg{}
 	msg.Type = Heartbeat
-	ae := AppendEntries{}
-	ae.LeaderId = leaderId
-	msg.Data = ae.ToString()
+	msg.FromId = leaderId
+	// ae := AppendEntries{}
+	// ae.LeaderId = leaderId
+	// msg.Data = ae.ToString()
 	return msg
 }
 
