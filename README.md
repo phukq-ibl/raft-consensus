@@ -5,9 +5,6 @@ Simple implementation of [raft consensus]("https://raft.github.io/")
 make raft
 ```
 ### Run
-#### 1 server
-```make run```
-#### multi server
 ```
 make run1
 make run2

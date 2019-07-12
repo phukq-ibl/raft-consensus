@@ -1,8 +1,6 @@
 raft:
 	go build -o ./build/main ./cmd/raft/main.go 
 
-run:
-	go run  ./cmd/raft/main.go
 run1: 
 	./build/main -port 3000 -peers localhost:3000,localhost:3001,localhost:3002,localhost:3003,localhost:3004 -id 1
 run2:

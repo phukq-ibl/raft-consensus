@@ -1,9 +1,8 @@
-package mynetwork
+package raft
 
 import (
 	"errors"
 	"github.com/phukq/raft-consensus/types"
-	"fmt"
 	log "github.com/sirupsen/logrus"
 	"math/rand"
 	"net"
@@ -139,7 +138,7 @@ func (s Server) handleConnection() {
 	err := s.setupListen()
 
 	if err != nil {
-		fmt.Println("Can not setup listen")
+		log.Warn("Can not setup listen")
 		panic(err)
 	}
 
@@ -148,9 +147,7 @@ func (s Server) handleConnection() {
 		conn, err := s.Listener.Accept()
 
 		if err != nil {
-			fmt.Println("Error 2")
-			// panic(err)
-
+			log.Warn("Error 2")
 		} else {
 			go s.setupConn(conn)
 		}
@@ -178,7 +175,7 @@ func (s *Server) setupConn(conn net.Conn) {
 }
 
 func (s *Server) doHandShake(p *Peer) error {
-	fmt.Println("Handshake to ", p.RemoteAddr())
+	log.Debug("Handshake with ", p.RemoteAddr())
 	tick := time.NewTimer(types.HandshakeTimeout)
 
 	msg := types.NewHandshakeMsg(s.Id)
@@ -275,7 +272,7 @@ func (s *Server) Handle(p *Peer) error {
 		msgRaw, err := p.ReadMsg()
 
 		if err != nil {
-			fmt.Println("Err", err)
+			log.Error("Peer error", err)
 			p.Disconnect()
 			s.RemovePeer(p.Id)
 			return err

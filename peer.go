@@ -1,4 +1,4 @@
-package mynetwork
+package raft
 
 import (
 	"bufio"
